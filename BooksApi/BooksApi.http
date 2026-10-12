@@ -1,0 +1,36 @@
+@BooksApi_HostAddress = http://localhost:5063
+
+### 1. Get all books
+GET {{BooksApi_HostAddress}}/api/books
+Accept: application/json
+
+### 2. Get book by ID
+GET {{BooksApi_HostAddress}}/api/books/1
+Accept: application/json
+
+### 3. Add a new book
+POST {{BooksApi_HostAddress}}/api/books
+Content-Type: application/json
+
+{
+  "title": "Clean Code",
+  "author": "Robert C. Martin",
+  "price": 29.99,
+  "genre": "Software Engineering",
+  "publishedYear": 2008
+}
+
+### 4. Update an existing book
+PUT {{BooksApi_HostAddress}}/api/books/1
+Content-Type: application/json
+
+{
+  "title": "The Great Gatsby (Special Edition)",
+  "author": "F. Scott Fitzgerald",
+  "price": 14.99,
+  "genre": "Classic Literature",
+  "publishedYear": 1925
+}
+
+### 5. Delete a book
+DELETE {{BooksApi_HostAddress}}/api/books/1
