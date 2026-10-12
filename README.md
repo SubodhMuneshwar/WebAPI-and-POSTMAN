@@ -431,3 +431,22 @@ Understanding the issues encountered during development is essential for trouble
 
 4. **Asynchronous Endpoints (`async`/`await`):**
    * When integrating a real database, change controller methods to return `Task<ActionResult<Book>>` and use `await context.SaveChangesAsync()` for optimal throughput under high traffic.
+
+---
+
+## 🎨 React CRUD Visualizer (`/client`)
+
+A modern, responsive React frontend is included in the `client/` directory to visualize all CRUD operations and HTTP verbs with one click on the website.
+
+### Features
+* **1-Click Quick Operations:** Quick Seed Demo Book (`POST`), Quick Bump Year +1 (`PATCH`), Refresh Catalog (`GET`), Inspect Headers (`HEAD`), and Check Allowed Verbs (`OPTIONS`).
+* **Live HTTP Inspector (Mini-Postman in the UI):** Real-time telemetry showing the HTTP method badge, endpoint URL, latency timer (ms), status code, response headers (`X-Total-Count`, `Allow`), and syntax-highlighted response JSON with a one-click copy button.
+* **CORS Enabled:** `BooksApi/Program.cs` is configured with `app.UseCors("AllowAll")` and exposed headers to allow direct browser access.
+
+### Running the Frontend
+```bash
+cd client
+npm install
+npm run dev
+```
+Open **`http://localhost:5174`** (or `http://localhost:5173`) in your browser.
