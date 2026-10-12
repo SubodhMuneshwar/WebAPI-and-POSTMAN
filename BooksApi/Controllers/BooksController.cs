@@ -1,86 +1,66 @@
-using Microsoft.AspNetCore.Mvc;
 using BooksApi.Models;
+using Microsoft.AspNetCore.Mvc;
 
 namespace BooksApi.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/[controller]")]   // URL becomes /api/books
 public class BooksController : ControllerBase
 {
-    // In-memory collection of books seeded with sample data
+    // Our "fake database": a list that lives in memory
     private static readonly List<Book> _books = new()
     {
-        new Book { Id = 1, Title = "The Great Gatsby", Author = "F. Scott Fitzgerald", Price = 10.99m, Genre = "Classic", PublishedYear = 1925 },
-        new Book { Id = 2, Title = "To Kill a Mockingbird", Author = "Harper Lee", Price = 12.50m, Genre = "Classic", PublishedYear = 1960 },
-        new Book { Id = 3, Title = "1984", Author = "George Orwell", Price = 9.99m, Genre = "Dystopian", PublishedYear = 1949 },
-        new Book { Id = 4, Title = "The Hobbit", Author = "J.R.R. Tolkien", Price = 14.99m, Genre = "Fantasy", PublishedYear = 1937 }
+        new Book { Id = 1, Title = "Clean Code", Author = "Robert C. Martin", Year = 2008 },
+        new Book { Id = 2, Title = "The Pragmatic Programmer", Author = "Andrew Hunt", Year = 1999 }
     };
+    private static int _nextId = 3;
 
-    // GET: api/books
+    // GET /api/books  -> get all books
     [HttpGet]
     public ActionResult<IEnumerable<Book>> GetAll()
     {
-        return Ok(_books);
+        return Ok(_books);                       // 200 OK
     }
 
-    // GET: api/books/{id}
-    [HttpGet("{id:int}")]
+    // GET /api/books/1  -> get one book
+    [HttpGet("{id}")]
     public ActionResult<Book> GetById(int id)
     {
         var book = _books.FirstOrDefault(b => b.Id == id);
-        if (book == null)
-        {
-            return NotFound(new { message = $"Book with ID {id} not found." });
-        }
-        return Ok(book);
+        if (book is null) return NotFound();     // 404
+        return Ok(book);                         // 200 OK
     }
 
-    // POST: api/books
+    // POST /api/books  -> add a new book
     [HttpPost]
-    public ActionResult<Book> Create([FromBody] Book newBook)
+    public ActionResult<Book> Create(Book newBook)
     {
-        if (newBook == null)
-        {
-            return BadRequest("Book data is required.");
-        }
-
-        int nextId = _books.Count > 0 ? _books.Max(b => b.Id) + 1 : 1;
-        newBook.Id = nextId;
-
+        newBook.Id = _nextId++;
         _books.Add(newBook);
-        return CreatedAtAction(nameof(GetById), new { id = newBook.Id }, newBook);
+        return CreatedAtAction(nameof(GetById), new { id = newBook.Id }, newBook);  // 201 Created
     }
 
-    // PUT: api/books/{id}
-    [HttpPut("{id:int}")]
-    public IActionResult Update(int id, [FromBody] Book updatedBook)
+    // PUT /api/books/1  -> update an existing book
+    [HttpPut("{id}")]
+    public IActionResult Update(int id, Book updated)
     {
-        var existingBook = _books.FirstOrDefault(b => b.Id == id);
-        if (existingBook == null)
-        {
-            return NotFound(new { message = $"Book with ID {id} not found." });
-        }
+        var book = _books.FirstOrDefault(b => b.Id == id);
+        if (book is null) return NotFound();     // 404
 
-        existingBook.Title = updatedBook.Title;
-        existingBook.Author = updatedBook.Author;
-        existingBook.Price = updatedBook.Price;
-        existingBook.Genre = updatedBook.Genre;
-        existingBook.PublishedYear = updatedBook.PublishedYear;
-
-        return Ok(existingBook);
+        book.Title = updated.Title;
+        book.Author = updated.Author;
+        book.Year = updated.Year;
+        return NoContent();                      // 204 No Content
     }
 
-    // DELETE: api/books/{id}
-    [HttpDelete("{id:int}")]
+    // DELETE /api/books/1  -> remove a book
+    [HttpDelete("{id}")]
     public IActionResult Delete(int id)
     {
         var book = _books.FirstOrDefault(b => b.Id == id);
-        if (book == null)
-        {
-            return NotFound(new { message = $"Book with ID {id} not found." });
-        }
+        if (book is null) return NotFound();     // 404
 
         _books.Remove(book);
-        return Ok(new { message = $"Book with ID {id} successfully deleted." });
+        return NoContent();                      // 204 No Content
     }
 }
