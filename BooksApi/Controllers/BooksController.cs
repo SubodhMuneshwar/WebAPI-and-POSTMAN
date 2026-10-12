@@ -63,4 +63,49 @@ public class BooksController : ControllerBase
         _books.Remove(book);
         return NoContent();                      // 204 No Content
     }
+
+        // PATCH /api/books/1  -> update only the fields that are sent
+    [HttpPatch("{id}")]
+    public ActionResult<Book> Patch(int id, BookPatchDto changes)
+    {
+        var book = _books.FirstOrDefault(b => b.Id == id);
+        if (book is null) return NotFound();                 // 404
+
+        if (changes.Title is not null)  book.Title  = changes.Title;
+        if (changes.Author is not null) book.Author = changes.Author;
+        if (changes.Year is not null)   book.Year   = changes.Year.Value;
+
+        return Ok(book);                                     // 200 with updated book
+    }
+
+    // HEAD /api/books  -> headers only, no body
+    [HttpHead]
+    public IActionResult HeadAll()
+    {
+        Response.Headers["X-Total-Count"] = _books.Count.ToString();
+        return Ok();
+    }
+
+    // HEAD /api/books/1  -> does this book exist?
+    [HttpHead("{id}")]
+    public IActionResult HeadById(int id)
+    {
+        return _books.Any(b => b.Id == id) ? Ok() : NotFound();
+    }
+
+    // OPTIONS /api/books  -> which methods are allowed?
+    [HttpOptions]
+    public IActionResult OptionsAll()
+    {
+        Response.Headers["Allow"] = "GET, POST, HEAD, OPTIONS";
+        return Ok();
+    }
+
+    // OPTIONS /api/books/1
+    [HttpOptions("{id}")]
+    public IActionResult OptionsById(int id)
+    {
+        Response.Headers["Allow"] = "GET, PUT, PATCH, DELETE, HEAD, OPTIONS";
+        return Ok();
+    }
 }
