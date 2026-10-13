@@ -1,4 +1,4 @@
-using BooksApi.Models;
+﻿using BooksApi.Models;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BooksApi.Controllers;
@@ -20,6 +20,23 @@ public class BooksController : ControllerBase
     public ActionResult<IEnumerable<Book>> GetAll()
     {
         return Ok(_books);                       // 200 OK
+    }
+
+    // GET /api/books/search?query=clean  -> search books by title or author
+    [HttpGet("search")]
+    public ActionResult<IEnumerable<Book>> Search([FromQuery] string? query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return Ok(_books);
+        }
+
+        var results = _books.Where(b =>
+            b.Title.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+            b.Author.Contains(query, StringComparison.OrdinalIgnoreCase)
+        );
+
+        return Ok(results);
     }
 
     // GET /api/books/1  -> get one book
@@ -64,7 +81,7 @@ public class BooksController : ControllerBase
         return NoContent();                      // 204 No Content
     }
 
-        // PATCH /api/books/1  -> update only the fields that are sent
+    // PATCH /api/books/1  -> update only the fields that are sent
     [HttpPatch("{id}")]
     public ActionResult<Book> Patch(int id, BookPatchDto changes)
     {
