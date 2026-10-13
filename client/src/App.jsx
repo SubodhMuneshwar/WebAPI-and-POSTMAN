@@ -2,7 +2,7 @@
 import { 
   BookOpen, Plus, RefreshCw, Trash2, Edit3, Sliders, Sparkles, 
   Clock, Activity, CheckCircle2, XCircle, Copy, Check, 
-  Layers, Send, X, ExternalLink
+  Layers, Send, X, ExternalLink, Search
 } from 'lucide-react';
 import './App.css';
 
@@ -20,6 +20,8 @@ export default function App() {
   const [books, setBooks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [serverOnline, setServerOnline] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeSearch, setActiveSearch] = useState("");
   
   // Last Request Inspector State
   const [inspector, setInspector] = useState({
@@ -128,10 +130,28 @@ export default function App() {
 
   // 1. GET /api/books
   const fetchAllBooks = async () => {
+    setActiveSearch("");
+    setSearchQuery("");
     const res = await executeHttp("GET", "/api/books");
     if (res.ok && Array.isArray(res.data)) {
       setBooks(res.data);
       showToast(`Fetched ${res.data.length} books (200 OK)`);
+    }
+  };
+
+  // 1b. GET /api/books/search?query=...
+  const handleSearch = async (term = searchQuery) => {
+    const trimmed = (term || "").trim();
+    if (!trimmed) {
+      fetchAllBooks();
+      return;
+    }
+    setActiveSearch(trimmed);
+    const endpoint = `/api/books/search?query=${encodeURIComponent(trimmed)}`;
+    const res = await executeHttp("GET", endpoint);
+    if (res.ok && Array.isArray(res.data)) {
+      setBooks(res.data);
+      showToast(`Search for "${trimmed}" returned ${res.data.length} book(s) (200 OK)`);
     }
   };
 
@@ -196,7 +216,6 @@ export default function App() {
     const res = await executeHttp("PATCH", `/api/books/${book.id}`, { year: newYear });
     if (res.ok) {
       showToast(`Book #${book.id} year bumped to ${newYear} via PATCH`);
-      // Update locally
       setBooks(books.map(b => b.id === book.id ? { ...b, year: newYear } : b));
     }
   };
@@ -293,7 +312,7 @@ export default function App() {
             </div>
             <div className="brand-text">
               <h1>BooksApi Explorer</h1>
-              <p>Visual CRUD & HTTP Verbs Playground</p>
+              <p>Visual CRUD, Search & HTTP Verbs Playground</p>
             </div>
           </div>
 
@@ -321,7 +340,9 @@ export default function App() {
           <div className="toolbar-card">
             <div className="toolbar-title">
               <h2><Sparkles size={16} color="#818cf8" /> One-Click Operations</h2>
-              <span className="books-count">{books.length} Books in Catalog</span>
+              <span className="books-count">
+                {activeSearch ? `Search: "${activeSearch}" (${books.length} found)` : `${books.length} Books in Catalog`}
+              </span>
             </div>
 
             <div className="toolbar-buttons">
@@ -333,7 +354,11 @@ export default function App() {
               </button>
 
               <button className="btn-action btn-seed" onClick={quickSeedBook} title="POST /api/books with random book">
-                <Send size={15} /> 1-Click Quick Seed Book (POST)
+                <Send size={15} /> 1-Click Seed Book (POST)
+              </button>
+
+              <button className="btn-action btn-search-action" onClick={() => { setSearchQuery("Clean"); handleSearch("Clean"); }} title="GET /api/books/search?query=Clean">
+                <Search size={15} /> 1-Click Search "Clean" (GET)
               </button>
 
               <button className="btn-action" onClick={fetchAllBooks} title="GET /api/books">
@@ -350,19 +375,102 @@ export default function App() {
             </div>
           </div>
 
+          {/* Interactive Search Bar Card */}
+          <div className="search-card">
+            <form onSubmit={(e) => { e.preventDefault(); handleSearch(searchQuery); }} className="search-input-group">
+              <div className="search-input-wrapper">
+                <Search size={16} className="search-icon-inside" />
+                <input 
+                  type="text"
+                  className="search-input"
+                  placeholder="Search books by title or author (GET /api/books/search?query=...)"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button 
+                    type="button" 
+                    className="search-clear-btn"
+                    onClick={() => { setSearchQuery(""); fetchAllBooks(); }}
+                    title="Clear search"
+                  >
+                    <X size={15} />
+                  </button>
+                )}
+              </div>
+
+              <button type="submit" className="btn-search" title="Send GET /api/books/search">
+                <Search size={15} /> Search
+              </button>
+            </form>
+
+            {/* Quick 1-Click Filter Chips */}
+            <div className="search-chips-row">
+              <span>Quick Filters:</span>
+              <button 
+                type="button"
+                className={`search-chip ${activeSearch === 'Clean' ? 'active' : ''}`}
+                onClick={() => { setSearchQuery("Clean"); handleSearch("Clean"); }}
+              >
+                "Clean"
+              </button>
+              <button 
+                type="button"
+                className={`search-chip ${activeSearch === 'Pragmatic' ? 'active' : ''}`}
+                onClick={() => { setSearchQuery("Pragmatic"); handleSearch("Pragmatic"); }}
+              >
+                "Pragmatic"
+              </button>
+              <button 
+                type="button"
+                className={`search-chip ${activeSearch === 'Martin' ? 'active' : ''}`}
+                onClick={() => { setSearchQuery("Martin"); handleSearch("Martin"); }}
+              >
+                "Martin"
+              </button>
+              <button 
+                type="button"
+                className={`search-chip ${!activeSearch ? 'active' : ''}`}
+                onClick={fetchAllBooks}
+              >
+                Show All ({books.length})
+              </button>
+            </div>
+          </div>
+
           {/* Catalog Grid */}
           <div className="books-section-header">
-            <h2 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Live Books Catalog</h2>
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 700 }}>
+              {activeSearch ? `Search Results for "${activeSearch}"` : 'Live Books Catalog'}
+            </h2>
+            {activeSearch && (
+              <button 
+                onClick={fetchAllBooks} 
+                style={{ fontSize: '0.8rem', color: 'var(--accent-sky)', cursor: 'pointer', background: 'none' }}
+              >
+                ← Clear Filter
+              </button>
+            )}
           </div>
 
           {books.length === 0 ? (
             <div className="empty-state">
               <BookOpen size={48} color="#64748b" style={{ margin: '0 auto 1rem' }} />
-              <h3>Catalog is Empty or Server is Unreachable</h3>
-              <p>Click below to seed sample books or verify that 'dotnet run' is active on {apiUrl}.</p>
-              <button className="btn-action btn-primary" onClick={quickSeedBook}>
-                <Plus size={16} /> Seed Sample Book (POST)
-              </button>
+              <h3>{activeSearch ? `No books found matching "${activeSearch}"` : 'Catalog is Empty'}</h3>
+              <p>
+                {activeSearch 
+                  ? 'Try searching with another term or reset to view all books.' 
+                  : `Click below to seed sample books or verify that 'dotnet run' is active on ${apiUrl}.`}
+              </p>
+              {activeSearch ? (
+                <button className="btn-action btn-primary" onClick={fetchAllBooks}>
+                  <RefreshCw size={15} /> Show All Books
+                </button>
+              ) : (
+                <button className="btn-action btn-primary" onClick={quickSeedBook}>
+                  <Plus size={16} /> Seed Sample Book (POST)
+                </button>
+              )}
             </div>
           ) : (
             <div className="books-grid">
