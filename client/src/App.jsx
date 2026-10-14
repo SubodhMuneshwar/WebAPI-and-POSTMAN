@@ -1,664 +1,366 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { 
-  BookOpen, Plus, RefreshCw, Trash2, Edit3, Sliders, Sparkles, 
-  Clock, Activity, CheckCircle2, XCircle, Copy, Check, 
-  Layers, Send, X, ExternalLink, Search
+  BookOpen, Plus, Search, Trash2, Edit2, Sliders, RefreshCw, 
+  X, Check, AlertCircle, ChevronDown, ChevronUp, Sparkles
 } from 'lucide-react';
 import './App.css';
 
-const PRESET_BOOKS = [
-  { title: "Clean Architecture", author: "Robert C. Martin", year: 2017 },
-  { title: "Domain-Driven Design", author: "Eric Evans", year: 2003 },
-  { title: "Refactoring", author: "Martin Fowler", year: 1999 },
-  { title: "Design Patterns (GoF)", author: "Erich Gamma et al.", year: 1994 },
-  { title: "Building Microservices", author: "Sam Newman", year: 2015 },
-  { title: "Site Reliability Engineering", author: "Betsy Beyer et al.", year: 2016 }
+const DEFAULT_BOOKS = [
+  { title: "Clean Code", author: "Robert C. Martin", year: 2008 },
+  { title: "The Pragmatic Programmer", author: "Andrew Hunt", year: 1999 },
+  { title: "Design Patterns", author: "Erich Gamma et al.", year: 1994 },
+  { title: "Refactoring", author: "Martin Fowler", year: 1999 }
 ];
 
 export default function App() {
-  const [apiUrl, setApiUrl] = useState("http://localhost:5063");
+  const API_URL = "http://localhost:5063";
   const [books, setBooks] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [serverOnline, setServerOnline] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [activeSearch, setActiveSearch] = useState("");
   
-  // Last Request Inspector State
-  const [inspector, setInspector] = useState({
+  // Minimal bottom telemetry
+  const [lastAction, setLastAction] = useState({
     method: "GET",
-    url: "http://localhost:5063/api/books",
-    status: null,
-    statusText: "",
+    endpoint: "/api/books",
+    status: 200,
     duration: 0,
-    headers: {},
-    responseBody: null,
-    requestBody: null,
-    timestamp: null
+    data: null
   });
-  const [inspectorTab, setInspectorTab] = useState("response");
-  const [copied, setCopied] = useState(false);
+  const [showJson, setShowJson] = useState(false);
 
-  // Modals & Forms
-  const [activeModal, setActiveModal] = useState(null); // { type: 'create' | 'edit' | 'patch', book?: object }
+  // Modal & Toast
+  const [modal, setModal] = useState(null); // { type: 'create' | 'edit', book?: object }
   const [formData, setFormData] = useState({ title: '', author: '', year: 2024 });
   const [toast, setToast] = useState(null);
 
-  const showToast = (message, type = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
+  const notify = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
   };
 
-  // Generic Request Runner with Telemetry & Latency measurement
-  const executeHttp = async (method, endpoint, body = null) => {
+  // HTTP Helper
+  const callApi = async (method, endpoint, body = null) => {
     setLoading(true);
-    const fullUrl = `${apiUrl}${endpoint}`;
-    const startTime = performance.now();
-
-    const options = {
-      method,
-      headers: {
-        'Accept': 'application/json'
-      }
-    };
-
-    if (body) {
-      options.headers['Content-Type'] = 'application/json';
-      options.body = JSON.stringify(body);
-    }
-
+    const start = performance.now();
     try {
-      const response = await fetch(fullUrl, options);
-      const duration = Math.round(performance.now() - startTime);
+      const res = await fetch(`${API_URL}${endpoint}`, {
+        method,
+        headers: {
+          'Accept': 'application/json',
+          ...(body ? { 'Content-Type': 'application/json' } : {})
+        },
+        body: body ? JSON.stringify(body) : null
+      });
+
+      const duration = Math.round(performance.now() - start);
       setServerOnline(true);
 
-      // Extract Headers
-      const headersMap = {};
-      response.headers.forEach((val, key) => {
-        headersMap[key] = val;
-      });
-
-      // Parse JSON body if present
       let data = null;
-      const text = await response.text();
+      const text = await res.text();
       if (text) {
-        try {
-          data = JSON.parse(text);
-        } catch {
-          data = text;
-        }
+        try { data = JSON.parse(text); } catch { data = text; }
       }
 
-      setInspector({
+      setLastAction({
         method,
-        url: fullUrl,
-        status: response.status,
-        statusText: response.statusText || (response.ok ? "OK" : "Error"),
+        endpoint,
+        status: res.status,
         duration,
-        headers: headersMap,
-        responseBody: data,
-        requestBody: body,
-        timestamp: new Date().toLocaleTimeString()
+        data
       });
 
-      return { ok: response.ok, status: response.status, data, headers: headersMap };
+      return { ok: res.ok, status: res.status, data };
     } catch (err) {
-      const duration = Math.round(performance.now() - startTime);
       setServerOnline(false);
-
-      setInspector({
+      setLastAction({
         method,
-        url: fullUrl,
+        endpoint,
         status: 0,
-        statusText: "Connection Failed",
-        duration,
-        headers: {},
-        responseBody: { 
-          error: "Unable to reach API server",
-          details: err.message,
-          hint: "Ensure 'dotnet run' is active on " + apiUrl + " with CORS enabled."
-        },
-        requestBody: body,
-        timestamp: new Date().toLocaleTimeString()
+        duration: Math.round(performance.now() - start),
+        data: { error: err.message, hint: "Make sure 'dotnet run' is active on " + API_URL }
       });
-
-      showToast(`Connection failed to ${apiUrl}`, "error");
-      return { ok: false, status: 0, error: err.message };
+      notify("API Connection Failed");
+      return { ok: false, status: 0 };
     } finally {
       setLoading(false);
     }
   };
 
-  // 1. GET /api/books
-  const fetchAllBooks = async () => {
-    setActiveSearch("");
+  // 1. GET /api/books (Fetch All)
+  const fetchAll = async () => {
     setSearchQuery("");
-    const res = await executeHttp("GET", "/api/books");
+    const res = await callApi("GET", "/api/books");
     if (res.ok && Array.isArray(res.data)) {
       setBooks(res.data);
-      showToast(`Fetched ${res.data.length} books (200 OK)`);
     }
   };
 
-  // 1b. GET /api/books/search?query=...
-  const handleSearch = async (term = searchQuery) => {
-    const trimmed = (term || "").trim();
+  // 2. GET /api/books/search?query=... (Live Search)
+  const searchBooks = async (query) => {
+    setSearchQuery(query);
+    const trimmed = query.trim();
     if (!trimmed) {
-      fetchAllBooks();
+      fetchAll();
       return;
     }
-    setActiveSearch(trimmed);
-    const endpoint = `/api/books/search?query=${encodeURIComponent(trimmed)}`;
-    const res = await executeHttp("GET", endpoint);
+    const res = await callApi("GET", `/api/books/search?query=${encodeURIComponent(trimmed)}`);
     if (res.ok && Array.isArray(res.data)) {
       setBooks(res.data);
-      showToast(`Search for "${trimmed}" returned ${res.data.length} book(s) (200 OK)`);
     }
   };
 
-  // 2. GET /api/books/{id}
-  const fetchBookById = async (id) => {
-    const res = await executeHttp("GET", `/api/books/${id}`);
-    if (res.ok) {
-      showToast(`Loaded Book #${id} (200 OK)`);
-    } else if (res.status === 404) {
-      showToast(`Book #${id} not found (404)`, "error");
-    }
-  };
-
-  // 3. POST /api/books (Quick Seed)
-  const quickSeedBook = async () => {
-    const randomBook = PRESET_BOOKS[Math.floor(Math.random() * PRESET_BOOKS.length)];
-    const res = await executeHttp("POST", "/api/books", randomBook);
-    if (res.ok) {
-      showToast(`Created "${randomBook.title}" (201 Created)`);
-      fetchAllBooks();
-    }
-  };
-
-  // 3b. POST /api/books (Custom Modal)
-  const handleCreateSubmit = async (e) => {
+  // 3. POST /api/books (Create)
+  const handleCreate = async (e) => {
     e.preventDefault();
-    if (!formData.title.trim() || !formData.author.trim()) {
-      showToast("Title and Author are required", "error");
-      return;
-    }
-    const res = await executeHttp("POST", "/api/books", {
+    if (!formData.title || !formData.author) return;
+    const res = await callApi("POST", "/api/books", {
       title: formData.title,
       author: formData.author,
       year: parseInt(formData.year) || 2024
     });
     if (res.ok) {
-      showToast(`Book added successfully (201 Created)`);
-      setActiveModal(null);
-      fetchAllBooks();
+      notify("Book created (201 Created)");
+      setModal(null);
+      fetchAll();
     }
   };
 
-  // 4. PUT /api/books/{id}
-  const handleUpdateSubmit = async (e) => {
+  // 4. PUT /api/books/{id} (Update)
+  const handleUpdate = async (e) => {
     e.preventDefault();
-    const id = activeModal.book.id;
-    const res = await executeHttp("PUT", `/api/books/${id}`, {
+    const id = modal.book.id;
+    const res = await callApi("PUT", `/api/books/${id}`, {
       title: formData.title,
       author: formData.author,
       year: parseInt(formData.year) || 2024
     });
     if (res.ok) {
-      showToast(`Book #${id} updated (204 No Content)`);
-      setActiveModal(null);
-      fetchAllBooks();
+      notify(`Book #${id} updated (204 No Content)`);
+      setModal(null);
+      fetchAll();
     }
   };
 
   // 5. PATCH /api/books/{id} (1-Click Bump Year +1)
-  const quickBumpYear = async (book) => {
-    const newYear = (book.year || 2000) + 1;
-    const res = await executeHttp("PATCH", `/api/books/${book.id}`, { year: newYear });
+  const bumpYear = async (book) => {
+    const nextYear = (book.year || 2000) + 1;
+    const res = await callApi("PATCH", `/api/books/${book.id}`, { year: nextYear });
     if (res.ok) {
-      showToast(`Book #${book.id} year bumped to ${newYear} via PATCH`);
-      setBooks(books.map(b => b.id === book.id ? { ...b, year: newYear } : b));
+      notify(`Year updated to ${nextYear} via PATCH`);
+      setBooks(books.map(b => b.id === book.id ? { ...b, year: nextYear } : b));
     }
   };
 
-  // 5b. PATCH /api/books/{id} (Custom Partial Update)
-  const handlePatchSubmit = async (e) => {
-    e.preventDefault();
-    const id = activeModal.book.id;
-    const patchPayload = {};
-    if (formData.title.trim()) patchPayload.title = formData.title;
-    if (formData.author.trim()) patchPayload.author = formData.author;
-    if (formData.year) patchPayload.year = parseInt(formData.year);
-
-    const res = await executeHttp("PATCH", `/api/books/${id}`, patchPayload);
-    if (res.ok) {
-      showToast(`Book #${id} patched successfully`);
-      setActiveModal(null);
-      fetchAllBooks();
-    }
-  };
-
-  // 6. DELETE /api/books/{id}
+  // 6. DELETE /api/books/{id} (Delete)
   const deleteBook = async (id, title) => {
-    const res = await executeHttp("DELETE", `/api/books/${id}`);
+    const res = await callApi("DELETE", `/api/books/${id}`);
     if (res.ok) {
-      showToast(`Deleted "${title}" (204 No Content)`);
+      notify(`Deleted "${title}" (204 No Content)`);
       setBooks(books.filter(b => b.id !== id));
     }
   };
 
-  // 7. HEAD /api/books
-  const inspectHead = async (id = null) => {
-    const endpoint = id ? `/api/books/${id}` : "/api/books";
-    const res = await executeHttp("HEAD", endpoint);
-    if (res.ok) {
-      const totalCount = res.headers["x-total-count"] || "N/A";
-      showToast(`HEAD Success! X-Total-Count: ${totalCount}`);
-    } else {
-      showToast(`HEAD returned ${res.status}`);
+  // 7. Seed Demo Books
+  const seedDemoBooks = async () => {
+    for (const b of DEFAULT_BOOKS) {
+      await callApi("POST", "/api/books", b);
     }
+    notify("Sample books added!");
+    fetchAll();
   };
 
-  // 8. OPTIONS /api/books
-  const inspectOptions = async (id = null) => {
-    const endpoint = id ? `/api/books/${id}` : "/api/books";
-    const res = await executeHttp("OPTIONS", endpoint);
-    if (res.ok) {
-      const allowed = res.headers["allow"] || "GET, POST, HEAD, OPTIONS";
-      showToast(`Allowed Methods: ${allowed}`);
-    }
-  };
-
-  // Initial load
   useEffect(() => {
-    fetchAllBooks();
+    fetchAll();
   }, []);
 
-  const copyJson = () => {
-    if (inspector.responseBody) {
-      navigator.clipboard.writeText(JSON.stringify(inspector.responseBody, null, 2));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  const getMethodBadgeClass = (m) => {
-    switch (m?.toUpperCase()) {
-      case 'GET': return 'badge-get';
-      case 'POST': return 'badge-post';
-      case 'PUT': return 'badge-put';
-      case 'PATCH': return 'badge-patch';
-      case 'DELETE': return 'badge-delete';
-      case 'HEAD': return 'badge-head';
-      case 'OPTIONS': return 'badge-options';
-      default: return 'badge-get';
-    }
-  };
-
-  const getStatusBadgeClass = (status) => {
-    if (status >= 200 && status < 300) return 'badge-status-2xx';
-    if (status >= 400 && status < 500) return 'badge-status-4xx';
-    if (status >= 500) return 'badge-status-5xx';
-    return '';
-  };
-
   return (
-    <div className="app-container">
-      {/* Header */}
-      <header className="app-header">
-        <div className="header-content">
-          <div className="brand-wrapper">
-            <div className="brand-icon">
-              <BookOpen size={24} />
-            </div>
-            <div className="brand-text">
-              <h1>BooksApi Explorer</h1>
-              <p>Visual CRUD, Search & HTTP Verbs Playground</p>
-            </div>
-          </div>
+    <div className="app-wrapper">
+      {/* Minimal Header */}
+      <header className="header-bar">
+        <div className="brand-title">
+          <BookOpen size={22} color="#6366f1" />
+          <h1>Books Library</h1>
+        </div>
 
-          <div className="header-controls">
-            <div className="server-pill">
-              <span className={`status-dot ${serverOnline ? 'online' : 'offline'}`} />
-              <span>{apiUrl}</span>
-            </div>
-            <button 
-              className="btn-icon" 
-              onClick={fetchAllBooks} 
-              title="Ping & Reload Catalog"
-            >
-              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-            </button>
-          </div>
+        <div className="status-badge" title="Backend API status">
+          <span className={`status-dot ${serverOnline ? 'online' : 'offline'}`} />
+          <span>{serverOnline ? 'localhost:5063' : 'Offline'}</span>
         </div>
       </header>
 
-      {/* Main Body */}
-      <main className="main-layout">
-        {/* Left: Action Bar & Book Catalog */}
-        <section className="catalog-section">
-          {/* 1-Click Operations Bar */}
-          <div className="toolbar-card">
-            <div className="toolbar-title">
-              <h2><Sparkles size={16} color="#818cf8" /> One-Click Operations</h2>
-              <span className="books-count">
-                {activeSearch ? `Search: "${activeSearch}" (${books.length} found)` : `${books.length} Books in Catalog`}
-              </span>
-            </div>
-
-            <div className="toolbar-buttons">
-              <button className="btn-action btn-primary" onClick={() => {
-                setFormData({ title: '', author: '', year: new Date().getFullYear() });
-                setActiveModal({ type: 'create' });
-              }}>
-                <Plus size={16} /> Add Custom Book
-              </button>
-
-              <button className="btn-action btn-seed" onClick={quickSeedBook} title="POST /api/books with random book">
-                <Send size={15} /> 1-Click Seed Book (POST)
-              </button>
-
-              <button className="btn-action btn-search-action" onClick={() => { setSearchQuery("Clean"); handleSearch("Clean"); }} title="GET /api/books/search?query=Clean">
-                <Search size={15} /> 1-Click Search "Clean" (GET)
-              </button>
-
-              <button className="btn-action" onClick={fetchAllBooks} title="GET /api/books">
-                <RefreshCw size={15} /> Refresh All (GET)
-              </button>
-
-              <button className="btn-action" onClick={() => inspectHead()} title="HEAD /api/books">
-                <Activity size={15} /> Headers Check (HEAD)
-              </button>
-
-              <button className="btn-action" onClick={() => inspectOptions()} title="OPTIONS /api/books">
-                <Layers size={15} /> Allowed Verbs (OPTIONS)
-              </button>
-            </div>
-          </div>
-
-          {/* Interactive Search Bar Card */}
-          <div className="search-card">
-            <form onSubmit={(e) => { e.preventDefault(); handleSearch(searchQuery); }} className="search-input-group">
-              <div className="search-input-wrapper">
-                <Search size={16} className="search-icon-inside" />
-                <input 
-                  type="text"
-                  className="search-input"
-                  placeholder="Search books by title or author (GET /api/books/search?query=...)"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-                {searchQuery && (
-                  <button 
-                    type="button" 
-                    className="search-clear-btn"
-                    onClick={() => { setSearchQuery(""); fetchAllBooks(); }}
-                    title="Clear search"
-                  >
-                    <X size={15} />
-                  </button>
-                )}
-              </div>
-
-              <button type="submit" className="btn-search" title="Send GET /api/books/search">
-                <Search size={15} /> Search
-              </button>
-            </form>
-
-            {/* Quick 1-Click Filter Chips */}
-            <div className="search-chips-row">
-              <span>Quick Filters:</span>
-              <button 
-                type="button"
-                className={`search-chip ${activeSearch === 'Clean' ? 'active' : ''}`}
-                onClick={() => { setSearchQuery("Clean"); handleSearch("Clean"); }}
-              >
-                "Clean"
-              </button>
-              <button 
-                type="button"
-                className={`search-chip ${activeSearch === 'Pragmatic' ? 'active' : ''}`}
-                onClick={() => { setSearchQuery("Pragmatic"); handleSearch("Pragmatic"); }}
-              >
-                "Pragmatic"
-              </button>
-              <button 
-                type="button"
-                className={`search-chip ${activeSearch === 'Martin' ? 'active' : ''}`}
-                onClick={() => { setSearchQuery("Martin"); handleSearch("Martin"); }}
-              >
-                "Martin"
-              </button>
-              <button 
-                type="button"
-                className={`search-chip ${!activeSearch ? 'active' : ''}`}
-                onClick={fetchAllBooks}
-              >
-                Show All ({books.length})
-              </button>
-            </div>
-          </div>
-
-          {/* Catalog Grid */}
-          <div className="books-section-header">
-            <h2 style={{ fontSize: '1.1rem', fontWeight: 700 }}>
-              {activeSearch ? `Search Results for "${activeSearch}"` : 'Live Books Catalog'}
-            </h2>
-            {activeSearch && (
-              <button 
-                onClick={fetchAllBooks} 
-                style={{ fontSize: '0.8rem', color: 'var(--accent-sky)', cursor: 'pointer', background: 'none' }}
-              >
-                ← Clear Filter
-              </button>
-            )}
-          </div>
-
-          {books.length === 0 ? (
-            <div className="empty-state">
-              <BookOpen size={48} color="#64748b" style={{ margin: '0 auto 1rem' }} />
-              <h3>{activeSearch ? `No books found matching "${activeSearch}"` : 'Catalog is Empty'}</h3>
-              <p>
-                {activeSearch 
-                  ? 'Try searching with another term or reset to view all books.' 
-                  : `Click below to seed sample books or verify that 'dotnet run' is active on ${apiUrl}.`}
-              </p>
-              {activeSearch ? (
-                <button className="btn-action btn-primary" onClick={fetchAllBooks}>
-                  <RefreshCw size={15} /> Show All Books
-                </button>
-              ) : (
-                <button className="btn-action btn-primary" onClick={quickSeedBook}>
-                  <Plus size={16} /> Seed Sample Book (POST)
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="books-grid">
-              {books.map(book => (
-                <div key={book.id} className="book-card animate-fade">
-                  <div>
-                    <div className="book-card-top">
-                      <span className="book-id-badge">#{book.id}</span>
-                      <span className="book-year-badge">Year: {book.year}</span>
-                    </div>
-
-                    <div className="book-info">
-                      <h3>{book.title}</h3>
-                      <p>By {book.author}</p>
-                    </div>
-                  </div>
-
-                  {/* 1-Click Actions for this book */}
-                  <div className="book-card-actions">
-                    <button 
-                      className="btn-card-action"
-                      onClick={() => fetchBookById(book.id)}
-                      title="GET /api/books/{id}"
-                    >
-                      <ExternalLink size={13} /> GET
-                    </button>
-
-                    <button 
-                      className="btn-card-action"
-                      onClick={() => {
-                        setFormData({ title: book.title, author: book.author, year: book.year });
-                        setActiveModal({ type: 'edit', book });
-                      }}
-                      title="PUT /api/books/{id} (Full update)"
-                    >
-                      <Edit3 size={13} /> PUT
-                    </button>
-
-                    <button 
-                      className="btn-card-action btn-card-patch"
-                      onClick={() => quickBumpYear(book)}
-                      title="PATCH /api/books/{id} (1-Click bumps year +1)"
-                    >
-                      <Sliders size={13} /> PATCH (+1 Yr)
-                    </button>
-
-                    <button 
-                      className="btn-card-action btn-card-delete"
-                      onClick={() => deleteBook(book.id, book.title)}
-                      title="DELETE /api/books/{id}"
-                    >
-                      <Trash2 size={13} /> DELETE
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+      {/* Unified Search & Action Bar */}
+      <section className="controls-bar">
+        <div className="search-box">
+          <Search size={16} className="search-icon" />
+          <input 
+            type="text" 
+            className="search-input"
+            placeholder="Search by title or author..."
+            value={searchQuery}
+            onChange={(e) => searchBooks(e.target.value)}
+          />
+          {searchQuery && (
+            <button className="clear-search-btn" onClick={() => searchBooks("")}>
+              <X size={15} />
+            </button>
           )}
-        </section>
+        </div>
 
-        {/* Right: Live Request & Response Inspector (Mini Postman) */}
-        <aside className="inspector-panel">
-          <div className="inspector-header">
-            <h2>
-              <Activity size={18} color="#6366f1" /> Live HTTP Inspector
-            </h2>
-            {inspector.status && (
-              <span className={`badge-method ${getStatusBadgeClass(inspector.status)}`}>
-                {inspector.status} {inspector.statusText}
-              </span>
-            )}
-          </div>
+        <button 
+          className="btn-primary"
+          onClick={() => {
+            setFormData({ title: '', author: '', year: 2024 });
+            setModal({ type: 'create' });
+          }}
+        >
+          <Plus size={16} /> Add Book
+        </button>
 
-          <div className="inspector-summary">
-            <div className="inspector-url-row">
-              <span className={`badge-method ${getMethodBadgeClass(inspector.method)}`}>
-                {inspector.method}
-              </span>
-              <span>{inspector.url}</span>
-            </div>
+        <button className="btn-secondary" onClick={fetchAll} title="Reload list">
+          <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </section>
 
-            <div className="inspector-meta-row">
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                <Clock size={13} /> {inspector.duration} ms
-              </span>
-              <span>•</span>
-              <span>{inspector.timestamp || 'Ready'}</span>
-            </div>
-          </div>
+      {/* Book Count Summary */}
+      <div className="list-summary">
+        <span>
+          {searchQuery ? `Search results for "${searchQuery}" (${books.length})` : `All Books (${books.length})`}
+        </span>
+        {books.length === 0 && (
+          <button 
+            onClick={seedDemoBooks}
+            style={{ color: '#6366f1', background: 'none', cursor: 'pointer', fontSize: '0.8rem' }}
+          >
+            + Seed Sample Books
+          </button>
+        )}
+      </div>
 
-          {/* Inspector Tabs */}
-          <div className="inspector-tabs">
-            <button 
-              className={`inspector-tab ${inspectorTab === 'response' ? 'active' : ''}`}
-              onClick={() => setInspectorTab('response')}
-            >
-              Response Body
-            </button>
-            <button 
-              className={`inspector-tab ${inspectorTab === 'headers' ? 'active' : ''}`}
-              onClick={() => setInspectorTab('headers')}
-            >
-              Headers ({Object.keys(inspector.headers).length})
-            </button>
-            {inspector.requestBody && (
-              <button 
-                className={`inspector-tab ${inspectorTab === 'request' ? 'active' : ''}`}
-                onClick={() => setInspectorTab('request')}
-              >
-                Payload
+      {/* Books List (Clean and uncluttered) */}
+      <main className="book-list">
+        {books.length === 0 ? (
+          <div className="empty-box">
+            <BookOpen size={40} color="#475569" />
+            <h3>No books found</h3>
+            <p>
+              {searchQuery 
+                ? `No books match "${searchQuery}". Clear your search to see all books.` 
+                : "Your collection is empty. Click below to add sample books."}
+            </p>
+            {searchQuery ? (
+              <button className="btn-secondary" onClick={() => searchBooks("")}>
+                Clear Search
+              </button>
+            ) : (
+              <button className="btn-primary" onClick={seedDemoBooks}>
+                <Sparkles size={15} /> Add Sample Books
               </button>
             )}
           </div>
-
-          {/* Inspector Content */}
-          <div className="inspector-body">
-            {inspectorTab === 'response' && (
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
-                  <button 
-                    onClick={copyJson}
-                    className="btn-icon"
-                    style={{ fontSize: '0.75rem', gap: '4px', padding: '0.2rem 0.5rem' }}
-                    title="Copy response JSON"
-                  >
-                    {copied ? <Check size={13} color="#10b981" /> : <Copy size={13} />}
-                    {copied ? 'Copied' : 'Copy'}
-                  </button>
+        ) : (
+          books.map(book => (
+            <div key={book.id} className="book-item">
+              <div className="book-main-info">
+                <div className="book-title-row">
+                  <span className="book-title-text">{book.title}</span>
+                  <span className="book-year-pill">{book.year}</span>
                 </div>
-                <pre className="code-block">
-                  {inspector.responseBody 
-                    ? JSON.stringify(inspector.responseBody, null, 2) 
-                    : "// No content or empty response"}
-                </pre>
+                <span className="book-author-text">by {book.author}</span>
               </div>
-            )}
 
-            {inspectorTab === 'headers' && (
-              <div className="headers-list">
-                {Object.entries(inspector.headers).map(([key, val]) => (
-                  <div key={key} className="header-row">
-                    <span>{key}:</span>
-                    <span>{val}</span>
-                  </div>
-                ))}
-                {Object.keys(inspector.headers).length === 0 && (
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>No headers recorded yet.</p>
-                )}
+              {/* 1-Click Operations */}
+              <div className="book-actions-group">
+                <button 
+                  className="action-btn action-btn-patch"
+                  onClick={() => bumpYear(book)}
+                  title="PATCH: Increment year by 1 in 1 click"
+                >
+                  <Sliders size={13} /> +1 Yr
+                </button>
+
+                <button 
+                  className="action-btn"
+                  onClick={() => {
+                    setFormData({ title: book.title, author: book.author, year: book.year });
+                    setModal({ type: 'edit', book });
+                  }}
+                  title="PUT: Edit book"
+                >
+                  <Edit2 size={13} /> Edit
+                </button>
+
+                <button 
+                  className="action-btn action-btn-delete"
+                  onClick={() => deleteBook(book.id, book.title)}
+                  title="DELETE: Remove book"
+                >
+                  <Trash2 size={13} /> Delete
+                </button>
               </div>
-            )}
-
-            {inspectorTab === 'request' && (
-              <pre className="code-block">
-                {JSON.stringify(inspector.requestBody, null, 2)}
-              </pre>
-            )}
-          </div>
-        </aside>
+            </div>
+          ))
+        )}
       </main>
 
-      {/* Modal Dialog for Add / Edit */}
-      {activeModal && (
-        <div className="modal-overlay" onClick={() => setActiveModal(null)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>
-                {activeModal.type === 'create' && 'Add New Book (POST)'}
-                {activeModal.type === 'edit' && `Update Book #${activeModal.book.id} (PUT)`}
-                {activeModal.type === 'patch' && `Patch Book #${activeModal.book.id} (PATCH)`}
-              </h3>
-              <button className="btn-icon" onClick={() => setActiveModal(null)}>
+      {/* Minimal Bottom Telemetry Bar */}
+      <footer className="bottom-telemetry-bar">
+        <div className="telemetry-summary">
+          <div className="telemetry-endpoint">
+            <span className={`badge-method badge-${lastAction.method.toLowerCase()}`}>
+              {lastAction.method}
+            </span>
+            <span>{lastAction.endpoint}</span>
+          </div>
+
+          <div className="telemetry-stats">
+            <span style={{ color: lastAction.status >= 200 && lastAction.status < 300 ? '#34d399' : '#fb7185' }}>
+              {lastAction.status || 'Err'}
+            </span>
+            <span style={{ color: 'var(--text-dim)' }}>•</span>
+            <span style={{ color: 'var(--text-dim)' }}>{lastAction.duration} ms</span>
+            
+            {lastAction.data && (
+              <button 
+                className="btn-toggle-json"
+                onClick={() => setShowJson(!showJson)}
+              >
+                {showJson ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+                <span>{showJson ? 'Hide JSON' : 'View JSON'}</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Collapsible JSON Preview */}
+        {showJson && lastAction.data && (
+          <pre className="telemetry-json-drawer">
+            {JSON.stringify(lastAction.data, null, 2)}
+          </pre>
+        )}
+      </footer>
+
+      {/* Simple Clean Modal for Add / Edit */}
+      {modal && (
+        <div className="modal-overlay" onClick={() => setModal(null)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
+            <div className="modal-header-row">
+              <h3>{modal.type === 'create' ? 'Add New Book' : `Edit Book #${modal.book.id}`}</h3>
+              <button className="clear-search-btn" onClick={() => setModal(null)}>
                 <X size={18} />
               </button>
             </div>
 
-            <form onSubmit={
-              activeModal.type === 'create' ? handleCreateSubmit : 
-              activeModal.type === 'edit' ? handleUpdateSubmit : handlePatchSubmit
-            }>
+            <form onSubmit={modal.type === 'create' ? handleCreate : handleUpdate}>
               <div className="form-group">
-                <label>Book Title</label>
+                <label>Title</label>
                 <input 
                   type="text" 
-                  className="form-input" 
-                  value={formData.title} 
-                  onChange={e => setFormData({ ...formData, title: e.target.value })} 
+                  className="form-control"
                   placeholder="e.g. Clean Code"
-                  required={activeModal.type !== 'patch'}
+                  value={formData.title}
+                  onChange={e => setFormData({ ...formData, title: e.target.value })}
+                  required
                 />
               </div>
 
@@ -666,33 +368,32 @@ export default function App() {
                 <label>Author</label>
                 <input 
                   type="text" 
-                  className="form-input" 
-                  value={formData.author} 
-                  onChange={e => setFormData({ ...formData, author: e.target.value })} 
+                  className="form-control"
                   placeholder="e.g. Robert C. Martin"
-                  required={activeModal.type !== 'patch'}
+                  value={formData.author}
+                  onChange={e => setFormData({ ...formData, author: e.target.value })}
+                  required
                 />
               </div>
 
               <div className="form-group">
-                <label>Published Year</label>
+                <label>Year</label>
                 <input 
                   type="number" 
-                  className="form-input" 
-                  value={formData.year} 
-                  onChange={e => setFormData({ ...formData, year: e.target.value })} 
+                  className="form-control"
                   placeholder="e.g. 2008"
+                  value={formData.year}
+                  onChange={e => setFormData({ ...formData, year: e.target.value })}
+                  required
                 />
               </div>
 
-              <div className="modal-actions">
-                <button type="button" className="btn-action" onClick={() => setActiveModal(null)}>
+              <div className="modal-actions-row">
+                <button type="button" className="btn-secondary" onClick={() => setModal(null)}>
                   Cancel
                 </button>
-                <button type="submit" className="btn-action btn-primary">
-                  {activeModal.type === 'create' && 'Create Book (POST)'}
-                  {activeModal.type === 'edit' && 'Save Changes (PUT)'}
-                  {activeModal.type === 'patch' && 'Apply Patch (PATCH)'}
+                <button type="submit" className="btn-primary">
+                  {modal.type === 'create' ? 'Save Book' : 'Update Book'}
                 </button>
               </div>
             </form>
@@ -700,17 +401,11 @@ export default function App() {
         </div>
       )}
 
-      {/* Floating Toast notification */}
+      {/* Clean Toast Notification */}
       {toast && (
-        <div className="toast-container">
-          <div className="toast-item">
-            {toast.type === 'error' ? (
-              <XCircle size={18} color="#f43f5e" />
-            ) : (
-              <CheckCircle2 size={18} color="#10b981" />
-            )}
-            <span>{toast.message}</span>
-          </div>
+        <div className="toast-box">
+          <Check size={15} color="#10b981" />
+          <span>{toast}</span>
         </div>
       )}
     </div>
